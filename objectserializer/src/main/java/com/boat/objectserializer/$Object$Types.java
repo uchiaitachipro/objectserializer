@@ -2,6 +2,10 @@ package com.boat.objectserializer;
 
 import android.text.TextUtils;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import java.io.Serializable;
 import java.lang.reflect.Array;
 import java.lang.reflect.GenericArrayType;
@@ -31,8 +35,6 @@ public class $Object$Types {
     private static final String PARAMETERIZED_TYPE_PREFIX = "#p";
     private static final String GENERIC_ARRAY_TYPE_PREFIX = "#ga";
     private static final String WILDCARD_TYPE_PREFIX = "#w";
-    private static final String ARRAY_PREFIX = "{";
-    private static final String ARRAY_SUFFIX = "}";
     private static final String NULL = "null";
 
     static final Type[] EMPTY_TYPE_ARRAY = new Type[]{};
@@ -458,6 +460,9 @@ public class $Object$Types {
     }
 
     private static final class ParameterizedTypeImpl implements ParameterizedType, Serializable {
+        public static final String OWNER_TYPE_NAME = "ot";
+        public static final String RAW_TYPE_NAME = "rt";
+        public static final String TYPE_ARGUMENTS_NAME = "args";
         private final Type ownerType;
         private final Type rawType;
         private final Type[] typeArguments;
@@ -506,21 +511,29 @@ public class $Object$Types {
                     ^ hashCodeOrZero(ownerType);
         }
 
+        private String getJsonString(){
+            JSONObject jsonObject = new JSONObject();
+            try {
+                jsonObject.put(OWNER_TYPE_NAME,(ownerType != null ? typeToString(ownerType) : NULL));
+                jsonObject.put(RAW_TYPE_NAME,typeToString(rawType));
+
+                if (typeArguments != null && typeArguments.length > 0){
+                    JSONArray array = new JSONArray();
+                    for (int i = 0; i < typeArguments.length; i++){
+                        array.put(i,typeToString(typeArguments[i]));
+                    }
+                    jsonObject.put(TYPE_ARGUMENTS_NAME,array);
+                }
+                return jsonObject.toString();
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+            return "";
+        }
+
         @Override
         public String toString() {
-            int length = typeArguments.length;
-            if (length == 0) {
-                return typeToString(rawType);
-            }
-
-            StringBuilder stringBuilder = new StringBuilder(36 * (length + 1));
-            stringBuilder.append(PARAMETERIZED_TYPE_PREFIX);
-            stringBuilder.append((ownerType != null ? typeToString(ownerType) : NULL) + "%");
-            stringBuilder.append(typeToString(rawType)).append(ARRAY_PREFIX).append(typeToString(typeArguments[0]));
-            for (int i = 1; i < length; i++) {
-                stringBuilder.append(",").append(typeToString(typeArguments[i]));
-            }
-            return stringBuilder.append(ARRAY_SUFFIX).toString();
+            return PARAMETERIZED_TYPE_PREFIX + getJsonString();
         }
 
         private static final long serialVersionUID = 0;
@@ -628,17 +641,23 @@ public class $Object$Types {
         if (token.startsWith(PARAMETERIZED_TYPE_PREFIX)) {
             String typeString = token.substring(PARAMETERIZED_TYPE_PREFIX.length());
 
-            int arrayStartIndex = typeString.indexOf(ARRAY_PREFIX);
-            int arrayEndIndex = typeString.lastIndexOf(ARRAY_SUFFIX);
-            String[] types = typeString.substring(0,arrayStartIndex).split("%");
-            Class ownerType = NULL.equals(types[0]) ? null : forName(types[0]);
-            Class rawType = forName(types[1]);
-            String[] arrayString = typeString.substring(arrayStartIndex + 1,arrayEndIndex).split(",");
-            Type[] typeArguments = new Type[arrayString.length];
-            for (int i = 0; i < arrayString.length; i++) {
-                typeArguments[i] = resumeTypeFromToken(arrayString[i]);
+            try {
+                JSONObject paramsJson = new JSONObject(typeString);
+                String ownerTypeString = paramsJson.getString(ParameterizedTypeImpl.OWNER_TYPE_NAME);
+                Class ownerType = NULL.equals(ownerTypeString) ? null : forName(ownerTypeString);
+                String rawTypeString = paramsJson.getString(ParameterizedTypeImpl.RAW_TYPE_NAME);
+                Class rawType = forName(rawTypeString);
+                JSONArray array = paramsJson.getJSONArray(ParameterizedTypeImpl.TYPE_ARGUMENTS_NAME);
+                Type[] typeArguments = new Type[array.length()];
+                for (int i = 0; i < array.length(); i++){
+                    String t = array.getString(i);
+                    typeArguments[i] = resumeTypeFromToken(t);
+                }
+                return new ParameterizedTypeImpl(ownerType, rawType, typeArguments);
+            } catch (JSONException e) {
+                e.printStackTrace();
+                return null;
             }
-            return new ParameterizedTypeImpl(ownerType, rawType, typeArguments);
         } else if (token.startsWith(GENERIC_ARRAY_TYPE_PREFIX)) {
             String type = token.substring(GENERIC_ARRAY_TYPE_PREFIX.length(), token.length() - 2);
             Class clazz = forName(type);
